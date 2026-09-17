@@ -1,0 +1,80 @@
+<!-- static/index.html -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>C代码漏洞自动修复系统 (Demo)</title>
+    <!-- 引入 Element Plus CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+    <link rel="stylesheet" href="/static/css/style.css">
+    
+    <!-- 引入 Vue 3 和 Element Plus JS -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/element-plus"></script>
+    <!-- 引入 Monaco Editor Loader -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.36.1/min/vs/loader.min.js"></script>
+</head>
+<body>
+    <div id="app" v-cloak>
+        <el-container class="layout-container">
+            <!-- 顶栏 -->
+            <el-header class="header">
+                <h2>基于大语言模型的 C 代码漏洞自动修复系统</h2>
+            </el-header>
+
+            <el-main>
+                <el-row :gutter="20" class="main-row">
+                    <!-- 左侧：代码输入区 -->
+                    <el-col :span="10" class="panel">
+                        <div class="panel-header">
+                            <h3>原始 C 代码</h3>
+                            <div class="actions">
+                                <el-button type="info" plain size="small" @click="triggerUpload">上传 .c 文件</el-button>
+                                <input type="file" id="fileInput" accept=".c,.cpp,.txt" style="display: none;" @change="handleFileUpload">
+                            </div>
+                        </div>
+                        
+                        <!-- 原代码编辑器容器 -->
+                        <div id="originalEditor" class="editor-container"></div>
+                        
+                        <div class="action-footer">
+                            <el-button type="primary" size="large" :loading="isRepairing" @click="startRepair">
+                                {{ isRepairing ? '修复中...' : '启动智能修复' }}
+                            </el-button>
+                        </div>
+                    </el-col>
+
+                    <!-- 右侧：工作流展示与Diff对比区 -->
+                    <el-col :span="14" class="panel right-panel">
+                        <div class="panel-header">
+                            <h3>修复工作流与结果对比</h3>
+                        </div>
+                        
+                        <!-- 进度条区域 -->
+                        <div class="steps-container" v-show="showSteps">
+                            <el-steps :active="currentStep" finish-status="success" align-center>
+                                <el-step title="静态扫描" description="提取CWE漏洞特征"></el-step>
+                                <el-step title="语义分析" description="提炼功能与风险点"></el-step>
+                                <el-step title="LLM 修复" description="RAG检索与代码生成"></el-step>
+                                <el-step title="GCC 验证" description="编译测试与反馈"></el-step>
+                                <el-step title="修复完成"></el-step>
+                            </el-steps>
+                        </div>
+
+                        <!-- 占位符 (未开始修复时显示) -->
+                        <div class="empty-state" v-show="!showDiff">
+                            <el-empty description="点击左侧「启动智能修复」查看结果"></el-empty>
+                        </div>
+
+                        <!-- Diff 视图容器 -->
+                        <div id="diffEditor" class="editor-container diff-mode" v-show="showDiff"></div>
+                    </el-col>
+                </el-row>
+            </el-main>
+        </el-container>
+    </div>
+
+    <!-- 自定义 JS 逻辑 -->
+    <script src="/static/js/main.js"></script>
+</body>
+</html>

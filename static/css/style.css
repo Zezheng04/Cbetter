@@ -1,0 +1,15 @@
+/* static/css/style.css */
+[v-cloak] { display: none; }
+body, html { margin: 0; padding: 0; height: 100%; font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", Arial, sans-serif; background-color: #f4f6f9; }
+.layout-container { height: 100vh; }
+.header { background-color: #2c3e50; color: white; display: flex; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+.header h2 { margin: 0; font-size: 20px; font-weight: 500;}
+.main-row { height: calc(100vh - 100px); }
+.panel { background: white; border-radius: 8px; padding: 15px; display: flex; flex-direction: column; box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05); }
+.panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.panel-header h3 { margin: 0; font-size: 16px; color: #303133; }
+.editor-container { flex: 1; border: 1px solid #dcdfe6; border-radius: 4px; overflow: hidden; min-height: 400px; }
+.action-footer { margin-top: 15px; display: flex; justify-content: center; }
+.steps-container { margin-bottom: 20px; padding: 15px; background: #fafafa; border-radius: 4px; }
+.empty-state { flex: 1; display: flex; align-items: center; justify-content: center; }
+.diff-mode { flex: 1; min-height: 500px; }
