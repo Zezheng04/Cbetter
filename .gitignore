@@ -19,3 +19,7 @@ Thumbs.db
 
 # 忽略安装包
 *.sh
+
+# 忽略本地大模型权重
+Qwen2.5-Coder-7B-Instruct/
+*.safetensors

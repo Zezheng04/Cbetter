@@ -92,7 +92,7 @@ const app = createApp({
         };
 
         // 模拟智能修复工作流
-        const startRepair = () => {
+        const startRepair = async () => {
             // 获取当前左侧编辑器中的代码
             const currentCode = originalEditorInstance.getValue();
             if (!currentCode.trim()) {
@@ -106,25 +106,33 @@ const app = createApp({
             showDiff.value = false;
             currentStep.value = 0;
 
-            // Mock 状态机流转 (通过定时器模拟后端处理时长)
-            const stepsTiming = [
-                { step: 1, time: 1000 }, // 静态扫描中...
-                { step: 2, time: 2500 }, // 语义分析中...
-                { step: 3, time: 4500 }, // LLM修复中...
-                { step: 4, time: 6000 }, // GCC验证中...
-                { step: 5, time: 7000 }  // 完成
-            ];
+// ====== 真实的智能修复工作流 ======
+            try {
+                // 1. UI 表现：模拟快速跳过前置步骤，进入大模型修复状态
+                currentStep.value = 1;
+                setTimeout(() => { currentStep.value = 2; }, 500);
+                setTimeout(() => { currentStep.value = 3; }, 1000);
 
-            stepsTiming.forEach(s => {
-                setTimeout(() => {
-                    currentStep.value = s.step;
-                    
-if (s.step === 5) { // 最终完成
+                // 2. 发起真实网络请求，调用后端大模型接口
+                const response = await fetch('/api/repair', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code: currentCode })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.status === 'success') {
+                    currentStep.value = 4; // 进入验证阶段
+
+                    setTimeout(() => {
+                        currentStep.value = 5; // 最终完成
                         isRepairing.value = false;
-                        ElementPlus.ElMessage.success('智能修复与验证完成！');
+                        ElementPlus.ElMessage.success('模型修复完成！');
 
                         const originalModel = monaco.editor.createModel(currentCode, 'c');
-                        const modifiedModel = monaco.editor.createModel(mockRepairedCode, 'c');
+                        // 🌟 注意这里：使用大模型真实返回的 data.repaired_code 替换了之前的假数据
+                        const modifiedModel = monaco.editor.createModel(data.repaired_code, 'c');
 
                         diffEditorInstance.setModel({
                             original: originalModel,
@@ -132,7 +140,7 @@ if (s.step === 5) { // 最终完成
                         });
                         showDiff.value = true;
 
-                        // 等待显示状态和 flex 布局完成后，强制 Monaco 重新计算尺寸
+                        // 🌟 完全保留你自己写好的、完美的强制刷新布局代码
                         nextTick(() => {
                             requestAnimationFrame(() => {
                                 if (diffEditorInstance) {
@@ -149,9 +157,14 @@ if (s.step === 5) { // 最终完成
                                 }
                             });
                         });
-                    }
-                }, s.time);
-            });
+                    }, 500); // 稍微延迟展示，让用户看清“GCC验证”那一步
+                } else {
+                    throw new Error(data.detail || "请求失败");
+                }
+            } catch (error) {
+                isRepairing.value = false;
+                ElementPlus.ElMessage.error('修复失败: ' + error.message);
+            }
         };
 
         onMounted(() => {
