@@ -117,12 +117,26 @@ const app = createApp({
                 const response = await fetch('/api/repair', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ code: currentCode })
                 });
 
                 const data = await response.json();
 
                 if (response.ok && data.status === 'success') {
+                        // 新增：打印工具链提取到的结构化数据
+                    console.log("【第3周成果】安全扫描提取的CWE漏洞：", data.scan_results);
+                    console.log("【第3周成果】GCC编译验证状态：", data.compile_result);
+                    
+                    // 如果大模型生成的代码编译失败，给用户一个提示框
+                    if (!data.compile_result.success) {
+                         ElementPlus.ElNotification({
+                            title: 'GCC 编译警告',
+                            message: '模型修复的代码存在编译错误，详见控制台。',
+                            type: 'warning',
+                            duration: 0 // 不自动关闭
+                         });
+                         console.error("GCC编译错误日志：", data.compile_result.error_msg);
+                    }
+
                     currentStep.value = 4; // 进入验证阶段
 
                     setTimeout(() => {
