@@ -1,6 +1,7 @@
 // static/js/main.js
 
 const { createApp, ref, onMounted, nextTick } = Vue;
+//是 Vue 的全局构建版：index.html 里 <script> 引 CDN，Vue 挂在 window 上，没有 npm、没有构建步骤、没有模块打包。优点是零工程配置，缺点是无法拆组件、无法 tree-shaking。这是 CDN 全局模式，不是 Vite 工程化
 
 // Mock 假数据（模拟一个经典的缓冲区溢出漏洞及修复）
 const mockVulnerableCode = `#include <stdio.h>
@@ -39,6 +40,8 @@ int main() {
 // Monaco Editor 全局实例
 let originalEditorInstance = null;
 let diffEditorInstance = null;
+let diffOriginalModel = null;    // 新增：Diff 左侧模型（只建一次）
+let diffModifiedModel = null;    // 新增：Diff 右侧模型（只建一次）
 
 const app = createApp({
     setup() {
@@ -56,14 +59,37 @@ const app = createApp({
         const handleFileUpload = (event) => {
             const file = event.target.files[0];
             if (file) {
+                // 新增检查 1：扩展名白名单（拦住选错文件）
+                if (!/\.(c|h)$/i.test(file.name)) {
+                    ElementPlus.ElMessage.warning('请上传 .c 源码文件（当前选中的是：' + file.name + '）');
+                    event.target.value = '';
+                    return;
+                }
+
                 const reader = new FileReader();
                 reader.onload = (e) => {
+                    const content = e.target.result;
+
+                    // 新增检查 2：空文件
+                    if (!content.trim()) {
+                        ElementPlus.ElMessage.warning('文件内容为空！');
+                        event.target.value = '';
+                        return;
+                    }
+
+                    // 新增检查 3：二进制嗅探（借鉴 Git 的经典启发式：文本里不该出现 NUL 字节）
+                    if (content.includes('\0')) {
+                        ElementPlus.ElMessage.warning('检测到二进制内容，这不是文本形式的 C 源码');
+                        event.target.value = '';
+                        return;
+                    }
+
                     if (originalEditorInstance) {
-                        originalEditorInstance.setValue(e.target.result);
+                        originalEditorInstance.setValue(content);
                     }
                 };
                 reader.readAsText(file);
-            }
+    }
         };
 
         // 初始化 Monaco Editor
@@ -88,6 +114,10 @@ const app = createApp({
                     automaticLayout: true,
                     readOnly: true
                 });
+                // 模型只在这里创建一次；以后每次修复只更新内容，不再新建
+                diffOriginalModel = monaco.editor.createModel('', 'c');
+                diffModifiedModel = monaco.editor.createModel('', 'c');
+                diffEditorInstance.setModel({ original: diffOriginalModel, modified: diffModifiedModel });
             });
         };
 
@@ -117,6 +147,7 @@ const app = createApp({
                 const response = await fetch('/api/repair', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code: currentCode }),
                 });
 
                 const data = await response.json();
@@ -144,17 +175,12 @@ const app = createApp({
                         isRepairing.value = false;
                         ElementPlus.ElMessage.success('模型修复完成！');
 
-                        const originalModel = monaco.editor.createModel(currentCode, 'c');
-                        // 🌟 注意这里：使用大模型真实返回的 data.repaired_code 替换了之前的假数据
-                        const modifiedModel = monaco.editor.createModel(data.repaired_code, 'c');
-
-                        diffEditorInstance.setModel({
-                            original: originalModel,
-                            modified: modifiedModel
-                        });
+                        diffOriginalModel.setValue(currentCode);
+                        diffModifiedModel.setValue(data.repaired_code);
                         showDiff.value = true;
 
-                        // 🌟 完全保留你自己写好的、完美的强制刷新布局代码
+                        // 保留强制刷新布局代码
+                        //Diff 容器初始 showDiff=false（隐藏/零尺寸）→ 等到展示时容器突然有了尺寸 → automaticLayout 的 ResizeObserver 触发时机偶尔滞后一拍 → 编辑器以 0 高度渲染或错位。解法就是在容器可见后手动调 layout() 强制重算，并用 requestAnimationFrame 等浏览器完成一轮布局后再量尺寸、再补一帧（双保险）。
                         nextTick(() => {
                             requestAnimationFrame(() => {
                                 if (diffEditorInstance) {
@@ -173,7 +199,10 @@ const app = createApp({
                         });
                     }, 500); // 稍微延迟展示，让用户看清“GCC验证”那一步
                 } else {
-                    throw new Error(data.detail || "请求失败");
+                     const msg = typeof data.detail === 'string'
+                        ? data.detail
+                        : (data.detail?.[0]?.msg || JSON.stringify(data.detail));
+                    throw new Error(msg);
                 }
             } catch (error) {
                 isRepairing.value = false;
