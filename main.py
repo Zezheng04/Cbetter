@@ -25,7 +25,7 @@ class RepairRequest(BaseModel):
     code: str
 
 # ===== 新增：定义后端返回给前端的数据结构 =====
-class ScanResult(BaseModel): 
+class ScanResult(BaseModel): #扫描结果列表里的每一项
     #BaseModel 是什么： Pydantic 提供的基类。一个类只要继承它，类体内写的每一行 字段名: 类型 就不再是摆设，而是被 Pydantic 解析成带运行时校能力的数据字段。它会在背后干三件事：
     # 校验——实例化时检查每个字段的类型对不对；
     # 生成 JSON Schema——FastAPI 拿它去画 /docs 里的文档；
@@ -34,11 +34,11 @@ class ScanResult(BaseModel):
     error_type: str
     message: str
 
-class CompileResult(BaseModel):
+class CompileResult(BaseModel):#编译验证那一个字典
     success: bool
     error_msg: str = ""
 
-class RepairResponse(BaseModel):
+class RepairResponse(BaseModel):#最终打包返回给前端的整个 JSON，RepairResponse 是最外层的 {} 本身，另外两个是被它装进去的零件：
     status: str
     repaired_code: str
     scan_results: list[ScanResult]
