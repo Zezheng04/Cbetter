@@ -2,13 +2,14 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from openai import AsyncOpenAI
 import uvicorn
 import re
 
 # 导入工具模块
 from tools import scan_c_code, compile_c_code
+from rag import build_repair_prompt, retrieve_cases
 app = FastAPI(title="基于大语言模型的C代码漏洞自动修复系统")
 
 # 配置本地的大模型客户端 (指向4用 vLLM 启动的 8001 端口)
@@ -33,16 +34,24 @@ class ScanResult(BaseModel): #扫描结果列表里的每一项
     line: int
     error_type: str
     message: str
+    cppcheck_id: str = ""
+    severity: str = ""
 
 class CompileResult(BaseModel):#编译验证那一个字典
     success: bool
     error_msg: str = ""
+
+class RagCase(BaseModel):
+    id: str
+    cwe: str
+    title: str
 
 class RepairResponse(BaseModel):#最终打包返回给前端的整个 JSON，RepairResponse 是最外层的 {} 本身，另外两个是被它装进去的零件：
     status: str
     repaired_code: str
     scan_results: list[ScanResult]
     compile_result: CompileResult
+    rag_cases: list[RagCase] = Field(default_factory=list)
 
 
 #mount 把整个 static 目录挂到 /static 前缀下；访问 / 时 307 重定向过去。
@@ -60,19 +69,24 @@ async def repair_code(req: RepairRequest):
         vulns = await scan_c_code(req.code)
         print("Detected Vulnerabilities:", vulns) # 打印在后端控制台方便调试
 
+        retrieved_cases = retrieve_cases(vulns, query_code=req.code)
+        print(f"[RAG] 扫描告警 {len(vulns)} 条（CWE: {sorted({v['error_type'] for v in vulns})}），"
+              f"检索命中 {len(retrieved_cases)} 条: {[c['id'] for c in retrieved_cases]}")
+        user_prompt = build_repair_prompt(req.code, vulns, retrieved_cases)
+
         system_prompt = """你是一个顶级的 C 语言安全专家。
-请修复用户提供的 C 代码中的安全漏洞。
+你必须遵守用户提示中的输出格式，生成可编译、可维护且安全的 C 代码。
 要求：
 1. 确保修复后的代码没有缓冲区溢出、指针越界等内存安全问题。
 2. 保持原有的业务逻辑不变。
-3. 你的回答中必须且只能包含完整的修复后的 C 代码，请将其放在 ```c 和 ``` 之间，不要解释。"""
+3. 不要臆造不存在的库函数或业务接口。"""
 
         # 步骤B：调用本地大模型修复
         response = await client.chat.completions.create(
             model="Qwen/Qwen2.5-Coder-7B-Instruct",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": req.code}
+                {"role": "user", "content": user_prompt}
             ],
             temperature=0.1, # temperature 越低采样越接近贪心解码，输出越确定——代码修复要的是可复现，不是创意
             max_tokens=2048  #是生成长度上限：超出就截断，截断的代码没有闭合围栏 
@@ -99,8 +113,12 @@ async def repair_code(req: RepairRequest):
             "status": "success", 
             "repaired_code": fixed_code,
             "scan_results": vulns,               # 新增：漏洞扫描结果
-            "compile_result": compile_result     # 新增：编译结果
-        }
+            "compile_result": compile_result,    # 新增：编译结果
+            "rag_cases": [
+                {"id": case["id"], "cwe": case["cwe"], "title": case["title"]}
+                for case in retrieved_cases
+            ]
+       }
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

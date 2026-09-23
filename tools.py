@@ -21,9 +21,9 @@ async def scan_c_code(code: str) -> list:#scan_c_code 和 compile_c_code 都必�
         # 输出格式： 行号|CWE编号|错误信息
         cmd = [
             'cppcheck', 
-            '--enable=warning,style,performance,portability', # 扫描级别
-            '--inconclusive', #--inconclusive：把“分析器不确定但可能有问题的”也报出来。代价是误报变多
-            '--template={line}|{cwe}|{message}',#关键点：默认输出是人类可读的句子，要用正则硬抠；自定义 template 让 cppcheck 直接输出准结构化的 行号|CWE|信息，Python 只需 split。
+            '--enable=warning', # 扫描级别
+            '--std=c11',          # 固定解析标准，不同机器/版本结果一致
+            '--template={line}|{cwe}|{severity}|{id}|{message}',#关键点：默认输出是人类可读的句子，要用正则硬抠；自定义 template 让 cppcheck 直接输出准结构化的 行号|CWE|信息，Python 只需 split。
             temp_filename
         ]
         
@@ -32,22 +32,38 @@ async def scan_c_code(code: str) -> list:#scan_c_code 和 compile_c_code 都必�
             stdout=asyncio.subprocess.PIPE,          # 等价于原来的 capture_output=True
             stderr=asyncio.subprocess.PIPE
         )
-        stdout, stderr = await process.communicate() # 异步等待进程结束，同时读两个管道防死锁
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+        except asyncio.TimeoutError:
+            if process is not None and process.returncode is None:
+                process.kill()
+                await process.wait()
+            print("扫描超时，已终止")
+            return []   # finally 仍会执行，临时文件照常清理
 
         # communicate() 返回的是 bytes，必须解码，后面的 split('\n') 才能工作
-        output = stderr.decode('utf-8')
+        output = (stdout + b"\n" + stderr).decode('utf-8', errors='replace')
         
         # 3. 解析输出并结构化为 JSON (Dict) 列表
+        seen = set()
         for line in output.split('\n'):
-            parts = line.split('|')
-            if len(parts) == 3:
-                line_num, cwe_id, msg = parts
-                if cwe_id != '0': # 过滤掉没有特定 CWE 的普通警告
-                    vulnerabilities.append({
-                        "line": int(line_num) if line_num.isdigit() else 0,
-                        "error_type": f"CWE-{cwe_id}",
-                        "message": msg.strip()
-                    })
+            parts = line.split('|', 4)          # maxsplit 保住 message 里可能出现的 |
+            if len(parts) != 5:                 # 进度行/日志行长度不对，自然过滤
+                continue
+            line_num, cwe_id, severity, check_id, msg = parts
+            if not cwe_id.strip().isdigit() or int(cwe_id) == 0:
+                continue                        # 无 CWE 的检查输出空串或 0，全部跳过
+            key = (line_num, cwe_id, check_id, msg.strip())
+            if key in seen:                     # 同一位置常被两个检查各报一次，去重
+                continue
+            seen.add(key)
+            vulnerabilities.append({
+                "line": int(line_num) if line_num.isdigit() else 0,
+                "error_type": f"CWE-{int(cwe_id)}",
+                "severity": severity,
+                "cppcheck_id": check_id,
+                "message": msg.strip()
+            })
     except Exception as e:
         print(f"扫描工具执行异常: {e}")
     finally:
@@ -95,4 +111,62 @@ async def compile_c_code(code: str) -> dict:
     finally:
         # 清理临时文件
         if os.path.exists(temp_filename): os.remove(temp_filename)
-        if os.path.exists(output_filename): os.remove(output_filename)
+        if os.path.exists(output_filename): os.remove(output_filename)# ===== 第 4 周新增：Tree-sitter 锚点切片 =====
+try:
+    import tree_sitter_c as _tsc
+    from tree_sitter import Language as _TSLang, Parser as _TSParser
+
+    _C_LANG = _TSLang(_tsc.language())
+
+    def _make_parser():
+        try:
+            return _TSParser(_C_LANG)      # tree-sitter >= 0.24
+        except TypeError:
+            p = _TSParser()                 # 0.22 / 0.23
+            try:
+                p.language = _C_LANG
+            except Exception:
+                p.set_language(_C_LANG)     # <= 0.21
+            return p
+
+    _PARSER = _make_parser()
+    _TS_OK = True
+except Exception as _e:
+    _TS_OK = False
+    print(f"[tools] tree-sitter 不可用，检索退化为全文匹配: {_e}")
+
+
+def _iter_functions(node):
+    if node.type == "function_definition":
+        yield node
+    for child in node.children:
+        yield from _iter_functions(child)
+
+
+def _function_name(node):
+    decl = node.child_by_field_name("declarator")
+    if decl is None:
+        return ""
+    stack = [decl]
+    while stack:
+        n = stack.pop()
+        if n.type == "identifier":
+            return n.text.decode("utf-8", errors="replace")
+        stack.extend(n.children)
+    return ""
+
+
+def extract_function_at(code: str, line: int):
+    """返回包含 line 行（1-based）的整个函数源码；找不到返回 None"""
+    if not _TS_OK or line <= 0:
+        return None
+    try:
+        tree = _PARSER.parse(code.encode("utf-8"))
+        target = line - 1
+        for fn in _iter_functions(tree.root_node):
+            # start_point[0] 是 0 起始的行号，用下标兼容新旧版本的 Point 类型
+            if fn.start_point[0] <= target <= fn.end_point[0]:
+                return fn.text.decode("utf-8", errors="replace")
+    except Exception as e:
+        print(f"[tools] 切片失败: {e}")
+    return None
