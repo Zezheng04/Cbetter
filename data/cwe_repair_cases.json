@@ -1,0 +1,68 @@
+
+[
+
+  {
+    "id": "cwe-119-strncpy",
+    "cwe": "CWE-119",
+    "title": "限制字符串复制长度",
+    "vulnerable_code": "void copy_name(const char *input) {\n    char name[16];\n    strcpy(name, input);\n}",
+    "fixed_code": "void copy_name(const char *input) {\n    char name[16];\n    if (input == NULL) return;\n    strncpy(name, input, sizeof(name) - 1);\n    name[sizeof(name) - 1] = '\\0';\n}",
+    "guidance": "目标缓冲区预留结尾字节，并显式补充字符串终止符。"
+  },
+  {
+    "id": "cwe-119-snprintf",
+    "cwe": "CWE-119",
+    "title": "使用 snprintf 防止格式化溢出",
+    "vulnerable_code": "void make_message(const char *name) {\n    char message[32];\n    sprintf(message, \"hello %s\", name);\n}",
+    "fixed_code": "void make_message(const char *name) {\n    char message[32];\n    if (name == NULL) return;\n    snprintf(message, sizeof(message), \"hello %s\", name);\n}",
+    "guidance": "格式化函数始终传入目标缓冲区容量，并检查输入指针。"
+  },
+  {
+    "id": "cwe-120-memcpy",
+    "cwe": "CWE-120",
+    "title": "验证 memcpy 的长度",
+    "vulnerable_code": "void read_packet(const char *packet, size_t length) {\n    char buffer[64];\n    memcpy(buffer, packet, length);\n}",
+    "fixed_code": "void read_packet(const char *packet, size_t length) {\n    char buffer[64];\n    if (packet == NULL || length > sizeof(buffer)) return;\n    memcpy(buffer, packet, length);\n}",
+    "guidance": "复制前验证源指针和外部提供的长度不超过目标对象大小。"
+  },
+  {
+    "id": "cwe-125-index",
+    "cwe": "CWE-125",
+    "title": "数组访问前检查索引",
+    "vulnerable_code": "int item_at(const int *items, size_t count, size_t index) {\n    return items[index];\n}",
+    "fixed_code": "int item_at(const int *items, size_t count, size_t index) {\n    if (items == NULL || index >= count) return 0;\n    return items[index];\n}",
+    "guidance": "读取数组前同时检查指针和索引上界，避免越界读取。"
+  },
+  {
+    "id": "cwe-190-overflow",
+    "cwe": "CWE-190",
+    "title": "检查整数乘法溢出",
+    "vulnerable_code": "size_t bytes = count * sizeof(struct Entry);\nstruct Entry *entries = malloc(bytes);",
+    "fixed_code": "if (count > SIZE_MAX / sizeof(struct Entry)) return NULL;\nsize_t bytes = count * sizeof(struct Entry);\nstruct Entry *entries = malloc(bytes);",
+    "guidance": "在整数乘法前用 SIZE_MAX 做上界检查，防止分配尺寸回绕。"
+  },
+  {
+    "id": "cwe-476-null",
+    "cwe": "CWE-476",
+    "title": "解引用前检查空指针",
+    "vulnerable_code": "int get_value(struct Config *config) {\n    return config->value;\n}",
+    "fixed_code": "int get_value(struct Config *config) {\n    if (config == NULL) return 0;\n    return config->value;\n}",
+    "guidance": "在每次解引用外部或可失败返回的指针前进行 NULL 检查。"
+  },
+  {
+    "id": "cwe-134-format",
+    "cwe": "CWE-134",
+    "title": "固定 printf 格式字符串",
+    "vulnerable_code": "void log_message(const char *message) {\n    printf(message);\n}",
+    "fixed_code": "void log_message(const char *message) {\n    if (message == NULL) return;\n    printf(\"%s\", message);\n}",
+    "guidance": "不可信字符串只能作为格式化参数传递，不能直接作为 format string。"
+  },
+  {
+    "id": "cwe-369-divzero",
+    "cwe": "CWE-369",
+    "title": "除法前检查除数",
+    "vulnerable_code": "int average(int total, int count) {\n    return total / count;\n}",
+    "fixed_code": "int average(int total, int count) {\n    if (count == 0) return 0;\n    return total / count;\n}",
+    "guidance": "执行除法或取模前验证除数不为零，并保持原有错误处理约定。"
+  }
+]

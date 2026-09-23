@@ -155,7 +155,16 @@ const app = createApp({
                 if (response.ok && data.status === 'success') {
                         // 新增：打印工具链提取到的结构化数据
                     console.log("【第3周成果】安全扫描提取的CWE漏洞：", data.scan_results);
+                    console.log("【第4周成果】RAG检索到的修复案例：", data.rag_cases);
                     console.log("【第3周成果】GCC编译验证状态：", data.compile_result);
+
+                    if (data.rag_cases && data.rag_cases.length > 0) {
+                        ElementPlus.ElMessage.success(
+                            `已检索 ${data.rag_cases.length} 个同类漏洞修复案例（${data.rag_cases.map(item => item.cwe).join('、')}）`
+                        );
+                    } else {
+                        ElementPlus.ElMessage.info('知识库暂无匹配案例，模型将依据扫描结果完成修复。');
+                    }
                     
                     // 如果大模型生成的代码编译失败，给用户一个提示框
                     if (!data.compile_result.success) {
