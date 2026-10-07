@@ -64,8 +64,12 @@ async def scan_c_code(code: str) -> list:#scan_c_code 和 compile_c_code 都必�
                 "cppcheck_id": check_id,
                 "message": msg.strip()
             })
+    except FileNotFoundError:
+        print("[严重错误] 系统未找到 cppcheck，请检查是否安装并配置在 PATH 中。")
+        raise RuntimeError("Cppcheck not found. 静态扫描器不可用，无法评估代码安全性。")
     except Exception as e:
         print(f"扫描工具执行异常: {e}")
+        raise RuntimeError(f"Cppcheck 执行内部异常: {e}")
     finally:
         # 4. 清理临时文件
         if os.path.exists(temp_filename):

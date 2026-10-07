@@ -92,9 +92,14 @@ def _load_cases() -> list[dict[str, Any]]:
 
 
 def _case_tokens(case: dict[str, Any]) -> list[str]:
+    """构建案例索引文本：标题+指导+漏洞代码，并强制提取危险API作为强特征元数据"""
     text = case["title"] + " " + case["guidance"] + " " + case["vulnerable_code"]
-    return _TOKEN_RE.findall(text.lower())
-
+    tokens = _TOKEN_RE.findall(text.lower())
+    # ★ 补全案例侧元数据：把代码里出现的危险 API 强行加入索引词汇表
+    for api in DANGEROUS_APIS:
+        if re.search(rf"\b{api}\s*\(", case["vulnerable_code"]):
+            tokens.append(api)
+    return tokens
 
 def _get_bm25():
     global _BM25, _BM25_CASES
