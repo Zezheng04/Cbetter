@@ -68,6 +68,19 @@
 
                         <!-- Diff 视图容器 -->
                         <div id="diffEditor" class="editor-container diff-mode" v-show="showDiff"></div>
+
+                        <!-- 第 5 周新增：结构化语义摘要面板 -->
+                        <el-collapse v-show="showDiff" style="margin-top: 12px;">
+                            <el-collapse-item title="结构化语义分析（硬性约束）" name="summary">
+                                <div v-if="summary && summary.io_spec" style="font-size: 13px; line-height: 1.8;">
+                                    <p><b>输入输出规范：</b>{{ summary.io_spec }}</p>
+                                    <p><b>核心业务逻辑：</b>{{ summary.business_logic }}</p>
+                                    <p><b>潜在内存风险：</b>{{ summary.memory_risk }}</p>
+                                    <p><b>修复约束：</b>{{ summary.repair_constraint }}</p>
+                                </div>
+                                <div v-else style="color: #999;">（摘要生成失败或为空）</div>
+                            </el-collapse-item>
+                        </el-collapse>
                     </el-col>
                 </el-row>
             </el-main>

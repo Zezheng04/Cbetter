@@ -155,11 +155,25 @@ def build_repair_prompt(
     code: str,
     vulnerabilities: list[dict[str, Any]],
     cases: list[dict[str, Any]],
+    summary: dict[str, Any] | None = None,   # ★ 第 5 周新增
 ) -> str:
-    """Build the user prompt with bounded, labelled few-shot repair examples."""
+    """Build the user prompt with bounded, labelled few-shot repair examples
+    and an optional structured summary as HARD constraints."""
     cwe_list = ", ".join(
         sorted({_normalise_cwe(str(v.get("error_type", ""))) for v in vulnerabilities if v.get("error_type")})
     ) or "未识别到具体 CWE"
+
+    # ★ 第 5 周新增：把摘要作为"硬性约束"拼入 Prompt
+    constraint_block = ""
+    if summary and any(summary.get(k) for k in ("io_spec", "business_logic", "memory_risk", "repair_constraint")):
+        constraint_block = f"""
+# 不可修改的硬性约束（违反即视为修复失败）
+以下信息来自结构化语义分析，必须严格遵守：
+- 输入输出规范：{summary.get('io_spec', '（未提供）')}
+- 核心业务逻辑：{summary.get('business_logic', '（未提供）')}
+- 潜在内存风险边界：{summary.get('memory_risk', '（未提供）')}
+- 修复约束：{summary.get('repair_constraint', '（未提供）')}
+"""
 
     examples = []
     for index, case in enumerate(cases, start=1):
@@ -178,11 +192,12 @@ def build_repair_prompt(
 
     examples_text = "\n\n".join(examples) or "暂无匹配案例，请依据扫描结果和 C 语言安全最佳实践修复。"
     return f"""检测到的漏洞类型：{cwe_list}
-
+{constraint_block}
 以下是本地知识库检索到的同类修复案例。请将其作为参考，不要机械复制其中的变量名或业务逻辑：
 {examples_text}
 
 请修复下面的用户代码，保持原有业务逻辑，优先采用边界检查、长度限制和安全的 API。
+【硬性规则】：绝对禁止修改任何函数名、变量名、结构体名和外部接口签名！只能在函数内部修改实现逻辑。
 你的回答必须且只能包含完整的修复后 C 代码，并放在 {FENCE_C} 和 {FENCE} 之间，不要输出解释。
 
 用户代码：

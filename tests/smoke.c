@@ -2,9 +2,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-int null_deref(void) {
-    int *p = 0;
-    return *p;                                  /* 期望 CWE-476 */
+int null_deref(int *p) {
+    if (p == NULL) {
+        return *p;                              /* 期望 CWE-476 */
+    }
+    return 0;
 }
 
 int div_zero(int a) {

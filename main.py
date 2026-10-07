@@ -10,6 +10,7 @@ import re
 # 导入工具模块
 from tools import scan_c_code, compile_c_code
 from rag import build_repair_prompt, retrieve_cases
+from semantics import generate_summary   # ★ 第 5 周新增
 app = FastAPI(title="基于大语言模型的C代码漏洞自动修复系统")
 
 # 配置本地的大模型客户端 (指向4用 vLLM 启动的 8001 端口)
@@ -46,12 +47,13 @@ class RagCase(BaseModel):
     cwe: str
     title: str
 
-class RepairResponse(BaseModel):#最终打包返回给前端的整个 JSON，RepairResponse 是最外层的 {} 本身，另外两个是被它装进去的零件：
+class RepairResponse(BaseModel):
     status: str
     repaired_code: str
     scan_results: list[ScanResult]
     compile_result: CompileResult
     rag_cases: list[RagCase] = Field(default_factory=list)
+    summary: dict = Field(default_factory=dict)   # ★ 第 5 周新增：回传前端展示
 
 
 #mount 把整个 static 目录挂到 /static 前缀下；访问 / 时 307 重定向过去。
@@ -72,8 +74,16 @@ async def repair_code(req: RepairRequest):
         retrieved_cases = retrieve_cases(vulns, query_code=req.code)
         print(f"[RAG] 扫描告警 {len(vulns)} 条（CWE: {sorted({v['error_type'] for v in vulns})}），"
               f"检索命中 {len(retrieved_cases)} 条: {[c['id'] for c in retrieved_cases]}")
-        user_prompt = build_repair_prompt(req.code, vulns, retrieved_cases)
 
+        # ★ 第 5 周新增：两步走的第一步——证据+代码→结构化摘要
+        summary = await generate_summary(client, req.code, vulns)
+        print(f"[SEMANTICS] 摘要生成完成: AST={summary.get('_meta', {}).get('ast_available')}, "
+              f"危险API={summary.get('_meta', {}).get('dangerous_apis', [])}")
+        print(f"[SEMANTICS] 修复约束: {summary.get('repair_constraint', '')[:80]}")
+
+        # 第二步：摘要作为硬性约束 + RAG案例 + 代码 → 修复
+        user_prompt = build_repair_prompt(req.code, vulns, retrieved_cases, summary=summary)
+        
         system_prompt = """你是一个顶级的 C 语言安全专家。
 你必须遵守用户提示中的输出格式，生成可编译、可维护且安全的 C 代码。
 要求：
@@ -112,12 +122,13 @@ async def repair_code(req: RepairRequest):
         return {
             "status": "success", 
             "repaired_code": fixed_code,
-            "scan_results": vulns,               # 新增：漏洞扫描结果
-            "compile_result": compile_result,    # 新增：编译结果
+            "scan_results": vulns,
+            "compile_result": compile_result,
             "rag_cases": [
                 {"id": case["id"], "cwe": case["cwe"], "title": case["title"]}
                 for case in retrieved_cases
-            ]
+            ],
+            "summary": summary,   # ★ 第 5 周新增：前端可展示语义分析结果
        }
         
     except Exception as e:

@@ -49,6 +49,7 @@ const app = createApp({
         const showSteps = ref(false);
         const showDiff = ref(false);
         const currentStep = ref(0);
+        const summary = ref({}); // ★ 第 5 周新增：保存结构化语义摘要
 
         // 触发文件上传框
         const triggerUpload = () => {
@@ -89,7 +90,7 @@ const app = createApp({
                     }
                 };
                 reader.readAsText(file);
-    }
+            }
         };
 
         // 初始化 Monaco Editor
@@ -135,8 +136,9 @@ const app = createApp({
             showSteps.value = true;
             showDiff.value = false;
             currentStep.value = 0;
+            summary.value = {}; // 重置摘要状态
 
-// ====== 真实的智能修复工作流 ======
+            // ====== 真实的智能修复工作流 ======
             try {
                 // 1. UI 表现：模拟快速跳过前置步骤，进入大模型修复状态
                 currentStep.value = 1;
@@ -153,10 +155,14 @@ const app = createApp({
                 const data = await response.json();
 
                 if (response.ok && data.status === 'success') {
-                        // 新增：打印工具链提取到的结构化数据
+                    // 新增：打印工具链提取到的结构化数据
                     console.log("【第3周成果】安全扫描提取的CWE漏洞：", data.scan_results);
                     console.log("【第4周成果】RAG检索到的修复案例：", data.rag_cases);
                     console.log("【第3周成果】GCC编译验证状态：", data.compile_result);
+                    console.log("【第5周成果】结构化语义摘要：", data.summary);
+
+                    // ★ 第 5 周新增：保存结构化摘要供模板渲染
+                    summary.value = data.summary || {};
 
                     if (data.rag_cases && data.rag_cases.length > 0) {
                         ElementPlus.ElMessage.success(
@@ -224,7 +230,7 @@ const app = createApp({
         });
 
         return {
-            isRepairing, showSteps, showDiff, currentStep,
+            isRepairing, showSteps, showDiff, currentStep, summary,
             triggerUpload, handleFileUpload, startRepair
         };
     }
