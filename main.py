@@ -11,6 +11,7 @@ import re
 from tools import scan_c_code, compile_c_code
 from rag import build_repair_prompt, retrieve_cases
 from semantics import generate_summary   # ★ 第 5 周新增
+from feedback import iterative_repair         # ★ 第 6 周新增：闭环迭代修复引擎
 app = FastAPI(title="基于大语言模型的C代码漏洞自动修复系统")
 
 # 配置本地的大模型客户端 (指向4用 vLLM 启动的 8001 端口)
@@ -47,6 +48,16 @@ class RagCase(BaseModel):
     cwe: str
     title: str
 
+# ★ 第 6 周新增：迭代修复日志中的每一轮
+class IterationRound(BaseModel):
+    round: int
+    stage: str                  # 初始修复 / 反馈修复（含负面提示）
+    log: str                    # 可读的轮次日志，前端时间线直接渲染
+    compile_success: bool
+    high_risk_count: int = 0
+    failure_reason: str = ""    # 反馈轮模型一句话自述的失败原因
+    error_signature: str = ""   # 归一化报错 Hash 前 12 位（调试用）    
+
 class RepairResponse(BaseModel):
     status: str
     repaired_code: str
@@ -54,6 +65,9 @@ class RepairResponse(BaseModel):
     compile_result: CompileResult
     rag_cases: list[RagCase] = Field(default_factory=list)
     summary: dict = Field(default_factory=dict)   # ★ 第 5 周新增：回传前端展示
+    iterations: list[IterationRound] = Field(default_factory=list)  # ★ 第 6 周新增
+    total_rounds: int = 1                                           # ★ 第 6 周新增
+    final_status: str = "success"                                   # ★ 第 6 周新增
 
 
 #mount 把整个 static 目录挂到 /static 前缀下；访问 / 时 307 重定向过去。
@@ -83,7 +97,7 @@ async def repair_code(req: RepairRequest):
 
         # 第二步：摘要作为硬性约束 + RAG案例 + 代码 → 修复
         user_prompt = build_repair_prompt(req.code, vulns, retrieved_cases, summary=summary)
-        
+
         system_prompt = """你是一个顶级的 C 语言安全专家。
 你必须遵守用户提示中的输出格式，生成可编译、可维护且安全的 C 代码。
 要求：
@@ -116,19 +130,28 @@ async def repair_code(req: RepairRequest):
 
                 # 步骤 C：编译器验证 (验证 LLM 修复的代码是否会报语法错误)
         compile_result = await compile_c_code(fixed_code)
-        print("Compile Result:", compile_result) # 打印在后端控制台
+        # ★ 第 6 周改造：把原来"单次 生成→编译"的直线流程，升级为闭环迭代引擎：
+        #   修复 → GCC 编译 → Cppcheck 重扫 → 失败拦截报错 → 反馈 Prompt（错误记忆+负面提示）→ 重试，上限 3 轮
+        result = await iterative_repair(
+            client, req.code, vulns, retrieved_cases, summary,
+        )
+        print(f"[ITER] 迭代结束: {result['final_status']}，共 {result['total_rounds']} 轮")
 
         # 步骤 D：将所有结构化信息返回给前端
         return {
-            "status": "success", 
-            "repaired_code": fixed_code,
+            "status": "success",
+            "repaired_code": result["repaired_code"],
             "scan_results": vulns,
-            "compile_result": compile_result,
+            "compile_result": result["compile_result"],
             "rag_cases": [
                 {"id": case["id"], "cwe": case["cwe"], "title": case["title"]}
                 for case in retrieved_cases
             ],
-            "summary": summary,   # ★ 第 5 周新增：前端可展示语义分析结果
+            "summary": summary,
+            # ★ 第 6 周新增
+            "iterations": result["iterations"],
+            "total_rounds": result["total_rounds"],
+            "final_status": result["final_status"],
        }
         
     except Exception as e:

@@ -55,10 +55,20 @@
                             <el-steps :active="currentStep" finish-status="success" align-center>
                                 <el-step title="静态扫描" description="提取CWE漏洞特征"></el-step>
                                 <el-step title="语义分析" description="提炼功能与风险点"></el-step>
-                                <el-step title="LLM 修复" description="RAG检索与代码生成"></el-step>
-                                <el-step title="GCC 验证" description="编译测试与反馈"></el-step>
+                                <el-step title="LLM 修复" description="RAG检索与迭代生成"></el-step>
+                                <el-step title="GCC 验证" description="编译、复扫与功能差分"></el-step>
                                 <el-step title="修复完成"></el-step>
                             </el-steps>
+                        </div>
+
+                        <!-- 闭环状态提示：把 GCC/Cppcheck 等子状态单独展示，避免长请求看起来像卡死 -->
+                        <div v-show="isRepairing" class="iteration-status">
+                            <div class="iteration-status-title">
+                                <el-tag type="primary" effect="dark" size="small">第 {{ activeIteration }} 轮</el-tag>
+                                <strong>第四步验证：{{ activePhase }}</strong>
+                            </div>
+                            <div class="iteration-status-detail">{{ activeStatus }}</div>
+                            <el-progress :percentage="iterationProgress" :status="iterationProgress === 100 ? 'success' : undefined" :show-text="false" :stroke-width="6"></el-progress>
                         </div>
 
                         <!-- 占位符 (未开始修复时显示) -->
@@ -69,8 +79,41 @@
                         <!-- Diff 视图容器 -->
                         <div id="diffEditor" class="editor-container diff-mode" v-show="showDiff"></div>
 
-                        <!-- 第 5 周新增：结构化语义摘要面板 -->
-                        <el-collapse v-show="showDiff" style="margin-top: 12px;">
+                        <!-- 结果面板：迭代日志（第 6 周） + 语义摘要（第 5 周） -->
+                        <!-- ★ 第 6 周改动：v-model 让「迭代日志」默认展开，演示时一眼看到多轮过程 -->
+                        <el-collapse v-show="showDiff" v-model="openPanels" @change="handlePanelChange" style="margin-top: 12px;">
+
+                            <!-- ★ 第 6 周新增：迭代修复日志面板 -->
+                            <el-collapse-item :title="`迭代修复日志（共 ${totalRounds} 轮）`" name="iterations">
+                                <!-- 最终状态标签：三态 -->
+                                <div style="margin-bottom: 10px;">
+                                    <el-tag v-if="finalStatus === 'success'" type="success" size="small" effect="dark">
+                                        最终状态：编译通过 · 安全体检通过
+                                    </el-tag>
+                                    <el-tag v-else-if="finalStatus === 'scan_failed'" type="warning" size="small" effect="dark">
+                                        最终状态：编译通过 · 重扫仍有高危漏洞
+                                    </el-tag>
+                                    <el-tag v-else-if="finalStatus === 'compile_failed'" type="danger" size="small" effect="dark">
+                                        最终状态：多轮迭代后仍未编译通过
+                                    </el-tag>
+                                </div>
+                                <!-- 每轮一条时间线：红=编译失败，黄=编译过但扫描有高危，绿=全过 -->
+                                <el-timeline v-if="iterations.length" style="padding-left: 6px;">
+                                    <el-timeline-item
+                                        v-for="it in iterations"
+                                        :key="it.round"
+                                        :type="!it.compile_success ? 'danger' : (it.high_risk_count > 0 ? 'warning' : 'success')"
+                                        :timestamp="'第 ' + it.round + ' 轮 · ' + it.stage">
+                                        <div>{{ it.log }}</div>
+                                        <div v-if="it.failure_reason" style="color: #999; font-size: 12px; margin-top: 4px;">
+                                            模型自述失败原因：{{ it.failure_reason }}
+                                        </div>
+                                    </el-timeline-item>
+                                </el-timeline>
+                                <div v-else style="color: #999;">（无迭代记录）</div>
+                            </el-collapse-item>
+
+                            <!-- 第 5 周新增：结构化语义摘要面板 -->
                             <el-collapse-item title="结构化语义分析（硬性约束）" name="summary">
                                 <div v-if="summary && summary.io_spec" style="font-size: 13px; line-height: 1.8;">
                                     <p><b>输入输出规范：</b>{{ summary.io_spec }}</p>
